@@ -4,7 +4,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+		<title>Type Erasure | SBO | Gašper Ažman</title>
 
 		<link rel="stylesheet" href="css/reveal.css">
 		<link rel="stylesheet" href="css/theme/black.css">
@@ -24,8 +24,282 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+
+<section data-markdown>
+Type Erasure with Small Object Optimization
+===========================================
+
+C++ London Meetup
+
+May 2018
+
+Gašper Ažman
+
+</section>
+
+
+<section data-markdown>
+
+Credits
+-------
+
+1. Basics: <b>Sean Parent</b>'s _Better Code_.
+2. <b>Steven Watanabe</b>'s `boost::type_erasure`
+3. My `liberasure` https://github.com/atomgalaxy/liberasure/
+4. <b>Louis Dionne</b>'s _Dyno_ is a newer take on this.
+
+</section>
+
+
+<section data-markdown>
+
+The Problem
+-----------
+
+<b>Runtime Polymorphism + Regular Types</b>
+
+Inheritance + virtual functions force reference semantics.
+
+
+</section>
+
+<section data-markdown>
+"Solution": Inheritance + virtual functions
+-------------------------------------------
+
+- clases must inherit from abstract class
+- need to overload "clone" or some other virtual function for copy.
+  - No way to model Regular.
+- *really* hard to not do on the heap
+- natural interface
+- you pay for virtual method calls even when you _know_ the type
+- no free functions
+- people understand it
+  - people get it wrong all the damn time
+
+</section>
+
+
+<section data-markdown>
+Solution: `std::variant<T1, ..., Tn>`
+-------------------------------------
+
+- fixed number of types
+- contained types are freeform
+- contained types are baked in at variant definition
+- no (inherent) heap allocation
+- awkward `std::visit`-based interface.
+- no variant, no runtime cost.
+- no methods, only free functions (with visit)
+- cannot model same concept as contained types
+- easy to use, but basically impossible to make your own
+- explaining variant takes a bit
+
+"Closed" runtime polymorphism.
+
+</section>
+
+
+<section data-markdown>
+Solution: `std::function<T(Arg1, Arg2, ..., Argn)>`
+---------------------------------------------------
+
+- Sean Parent-style type erasure ("classic")
+- allocates on the heap
+- types must support the concept of _Callable with those parameters_
+- "natural" interface
+  - free functions and methods
+- contained types not declared in advance
+- contained types do not need to inherit from anything
+- no function wrapper, no runtime cost.
+- can model same concept as contained types
+  - can act as a "lift" of static polymorphism to runtime
+- the standard co-worker can undestand it with 10 minutes of free time
+
+"Open" runtime polymorphism
+
+</section>
+
+
+<section data-markdown>
+Solution: Type Erasure + Small Buffer
+-------------------------------------
+
+- "Closed" runtime polymorphism (to types smaller than buffer)
+- no heap allocation (for types smaller than buffer)
+- natural interface
+  - free functions and methods
+- contained types must support interface, but no need to inherit
+- no container, no runtime cost.
+- can model same concept as contained types
+  - can act as a "lift" of static polymorphism to runtime
+- the standard co-worker can undestand it with 15 minutes of free time
+
+"Semi-Open" runtime polymorphism
+
+</section>
+
+<section data-markdown>
+Example: Simple JSON-like Language
+----------------------------------
+
+- elements:
+  - ints
+  - strings
+  - arrays of elements
+  - maps of string -> element
+
+</section>
+
+<section data-markdown>
+The Elements
+------------
+
+- `struct element;` (fwd declare)
+- `struct null {};`
+- `int`
+- `std::string`
+- `using array_t = std::vector&lt;element&gt;`
+- `using map_t = std::map&lt;std::string, element&gt;`
+
+Notice:
+- No control over inheritance.
+- _int_ isn't even a class.
+
+</section>
+
+<section data-markdown>
+Write Into: `null`
+-----------------
+
+```cpp
+void write_into(std::ostream& o, null x) {
+  o &lt;&lt; "null"; 
+}
+```
+</section>
+
+<section data-markdown>
+Write Into: `int`
+-----------------
+
+```cpp
+void write_into(std::ostream& o, int x) {
+  o &lt;&lt; x; 
+}
+```
+
+Looks like: `5`
+
+</section>
+
+<section data-markdown>
+Write Into: `std::string`
+-------------------------
+```cpp
+void write_into(std::ostream& o, std::string const& x) {
+  o &lt;&lt; '"' &lt;&lt; x &lt;&lt; '"'; 
+}
+```
+
+Looks like: `"foo"`
+
+</section>
+
+<section data-markdown>
+Write Into: `array_t`
+---------------------
+
+```cpp
+void write_into(std::ostream& o, array_t const& x) {
+  o &lt;&lt; '[';
+  for (auto const& elem : x) {
+    write_into(o, elem);
+    o &lt;&lt; ", ";
+  }
+  o &lt;&lt; ']';
+}
+```
+
+Looks like: `[1, 2, "bar",]`
+</section>
+
+<section data-markdown>
+Write Into: `map_t`
+-------------------
+
+```cpp
+void write_into(std::ostream& o, map_t const& x) {
+  o &lt;&lt; '{';
+  for (auto const& elem : x) {
+    write_into(o, elem.first);
+    o &lt;&lt; ": ";
+    write_into(o, elem.second);
+    o &lt;&lt; ", ";
+  }
+  o &lt;&lt; '}';
+}
+```
+
+Looks like: `{1: [1, 2, "bar",], "foo": 3}`
+
+</section>
+
+<section data-markdown>
+Write Into: `element`?
+----------------------
+
+This one is more complicated. Let's see what `element` looks like.
+
+</section>
+
+<section data-markdown>
+Element: Interface
+------------------
+
+```cpp
+struct element {
+  element() noexcept; // construct null
+  element(element&amp;&amp;) noexcept;  // move-ctr
+  element(element const&);  // copy-ctr
+  element& operator=(element) noexcept; // copy+move assign
+  
+```
+Creation:
+```cpp
+  element(null) noexcept : element() {};
+  element(int) noexcept;
+  element(std::string&amp;&amp;) noexcept;
+  element(array_t&amp;&amp;) noexcept;
+  element(map_t&amp;&amp;) noexcept;
+```
+Complete Regular:
+```cpp
+  friend bool operator==(element const&, element const&); // extra slides
+  friend bool operator!=(element const& x, element const& y) { return !(x==y); }
+```
+Extras:
+```
+  friend void write_into(std::ostream& o, element const& elem);
+```
+
+</section>
+
+<section data-markdown>
+```cpp
+private:
+  std::aligned_union&lt;???&gt; space;  // small buffer
+  concept*       ptr() { reinterpret_cast&lt;concept*      &gt;(&space); }
+  concept const* ptr() { reinterpret_cast&lt;concept const*&gt;(&space); }
+};
+```
+
+</section>
+
+<section data-markdown>
+
+</section>
+
 			</div>
 		</div>
 
