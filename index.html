@@ -259,46 +259,305 @@ Element: Interface
 
 ```cpp
 struct element {
-  element() noexcept; // construct null
-  element(element&amp;&amp;) noexcept;  // move-ctr
-  element(element const&);  // copy-ctr
+  element() noexcept;                   // construct null
+  element(element&amp;&amp;) noexcept;          // move-ctr
+  element(element const&);              // copy-ctr
   element& operator=(element) noexcept; // copy+move assign
-  
 ```
+</section>
+
+<section data-markdown>
 Creation:
 ```cpp
+/* struct element { */
   element(null) noexcept : element() {};
   element(int) noexcept;
   element(std::string&amp;&amp;) noexcept;
+  element(char const*); // extra for string
   element(array_t&amp;&amp;) noexcept;
   element(map_t&amp;&amp;) noexcept;
 ```
-Complete Regular:
+</section>
+
+<section data-markdown>
+Complete `Regular` with `EqualityComparable`
+--------------------------------------------
+
 ```cpp
-  friend bool operator==(element const&, element const&); // extra slides
-  friend bool operator!=(element const& x, element const& y) { return !(x==y); }
+/* struct element { */
+  // bonus slides
+  friend
+  bool operator==(element const&amp;, element const&amp;);
+  friend
+  bool operator!=(element const&amp; x, element const&amp; y) {
+    return !(x==y);
+  }
 ```
+
 Extras:
 ```
-  friend void write_into(std::ostream& o, element const& elem);
+  friend
+  void write_into(std::ostream&amp; o, element const&amp; elem);
 ```
 
 </section>
 
 <section data-markdown>
 ```cpp
+/* struct element { */
 private:
-  std::aligned_union&lt;???&gt; space;  // small buffer
-  concept*       ptr() { reinterpret_cast&lt;concept*      &gt;(&space); }
-  concept const* ptr() { reinterpret_cast&lt;concept const*&gt;(&space); }
+  std::aligned_union&lt;???&gt;::type space; // small buffer
+
+  // accessors
+  auto ptr() {
+    return std::launder( // trust me, here be dragons.
+      reinterpret_cast&lt;concept*&gt;(&space)(;
+  }
+  auto ptr() const {
+    return std::launder( // same here.
+      reinterpret_cast&lt;concept const*&gt;(&space));
+  }
+}; // end struct element
+```
+</section>
+
+<section data-markdown>
+Recap #1
+---------
+
+- `element` is `Regular` (do as the `int`s do)
+  - `DefaultConstructible`
+  - `NoexceptMovable`
+  - `Copyable` (and copies don't alias)
+  - `EqualityComparable`
+
+</section>
+
+<section data-markdown>
+Recap #2
+--------
+
+Additionally:
+- It's constructible from all the 5 types it can hold
+  - `null`
+  - `int`
+  - `std::string` (plus the convenience `char*`)
+  - `array_t`
+  - `map_t`
+
+- it has `write_into`.
+</section>
+
+<section data-markdown>
+Implementation
+--------------
+
+First, the definition of the vtable. We'll call it `concept`.
+
+Pure abstract base class.
+
+```cpp
+struct concept {
+  friend element;  // ... helps.
+  virtual write_into(std::ostream&amp;) const = 0;
+  /* ... */
+  ~concept() {};
 };
 ```
 
+This is how we'll forward `write_into(o)`.
 </section>
 
 <section data-markdown>
+Usage in `element`
+------------------
+```cpp
+/* struct element { */
+  friend
+  void write_into(std::ostream&amp; o, element const&) {
+    ptr()-&gt;write_into(o);
+  }
+```
+
+Remember:
+```cpp
+private:
+  std::aligned_union&lt;???&gt;::type space; // small buffer
+  auto ptr() const {
+    return std::launder(
+      reinterpret_cast&lt;concept const*&gt;(&space));
+  }
+```
+</section>
+
+<section data-markdown>
+Implementation: Model
+---------------------
+
+This is the main bit:
+```cpp
+template <typename ValueType>
+struct model : concept {
+  // vtable, plus one member:
+  ValueType value;
+
+  void write_into(std::ostream&amp; o) const override {
+    // remember, we defined these for all our basic types
+    write_into(o, *this);
+  }
+};
+```
+You can now say you know how type erasure works.
 
 </section>
+
+<section data-markdown>
+Hiding `model` and `concept`
+----------------------------
+
+`model` and `concept` are private to `element`.
+The user should never see them.
+
+```cpp
+struct element {
+  // all of these constructors look the same
+  element(map_t&amp;&amp; x) {
+    void* at = &amp;space;
+    new (at) model&lt;map_t&gt;(std::move(x));
+  }
+}
+```
+
+This requires `space` to be sized appropriately.
+</section>
+
+<section data-markdown>
+Sizing the Buffer
+-----------------
+
+The actual objects stored in there are `model&lt;T&gt;`,
+so we need to size it appropriately.
+
+```cpp
+struct element {
+  std::aligned_union&lt;1,
+                    model&lt;null&gt;,
+                    model&lt;int&gt;,
+                    model&lt;std::string&gt;,
+                    model&lt;array_t&gt;,
+                    model&lt;map_t&gt;&gt;::type
+    space;
+}
+```
+</section>
+
+<section data-markdown data-transition='none'>
+How to move?
+------------
+
+```cpp
+struct element {
+  element(element&amp;&amp; other) {
+    other.ptr()->move_construct_into(&amp;space);
+  }
+};
+struct concept {
+  virtual void move_construct_into(void* at) = 0;
+};
+template &lt;typename ValueType&gt;
+struct model : concept{
+  void move_construct_into(void* at) override {
+    new (at) model(std::move(*this));
+  }
+};
+```
+</section>
+
+<section data-markdown data-transition='none'>
+How to copy?
+------------
+
+```cpp
+struct element {
+  element(element const&amp; other) {
+    other.ptr()->copy_construct_into(&amp;space);
+  }
+};
+struct concept {
+  virtual void copy_construct_into(void* at) const = 0;
+};
+template &lt;typename ValueType&gt;
+struct model : concept{
+  void copy_construct_into(void* at) const override {
+    new (at) model(*this);
+  }
+};
+```
+</section>
+
+<section data-markdown>
+The Assignment Operator
+-----------------------
+
+We take element by value. That way we already get
+a constructed one, always.
+
+If you want to optimize this, go ahead, make it more complicated.
+
+```cpp
+struct element {
+  element&amp; operator=(element new_elem) {
+    // it's *never* us.
+    ptr()-&gt;~concept();
+    new_elem.ptr()-&gt;move_construct_into(&space);
+    return *this;
+  }
+};
+```
+</section>
+
+
+<section data-markdown>
+The Destructor
+--------------
+
+We take element by value. That way we already get
+a constructed one, always.
+
+If you want to optimize this, go ahead, make it more complicated.
+
+```cpp
+struct element {
+~element() { ptr()-&gt;~concept(); }
+};
+```
+</section>
+
+<section data-markdown>
+Recap
+-----
+
+We only needed all the special functions on `element`.
+
+We did not need them on either `concept` or `model` - those get the
+rule of 1 (virtual destructor).
+</section>
+
+<section data-markdown>
+Example Usage
+-------------
+
+```cpp
+auto config_file =
+  map_t{
+    {"foo", array_t{"abc", 1, 2, "cde"}},
+    {"bar", "baz"}};
+
+write_out(std::out, config_file);
+```
+
+</section>
+
 
 			</div>
 		</div>
