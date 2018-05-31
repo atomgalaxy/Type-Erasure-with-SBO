@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Using Enum Teaser | Gašper Ažman</title>
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/black.css">
+<style type="text/css">
+.good {
+  color: green;
+}
+
+.bad {
+  color: red;
+}
+</style>
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+		<script>
+			var link = document.createElement( 'link' );
+			link.rel = 'stylesheet';
+			link.type = 'text/css';
+			link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			document.getElementsByTagName( 'head' )[0].appendChild( link );
+		</script>
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+
+<section data-markdown>
+Using Enum Teaser
+=================
+
+C++ London Meetup
+
+May 2018
+
+Gašper Ažman
+
+</section>
+
+
+<section data-markdown>
+
+Enums Are Awesome
+=================
+
+```cpp
+enum rgba_color_channel {
+  red,
+  green,
+  blue,
+  alpha;
+};
+```
+
+no?
+
+</section>
+
+
+<section data-markdown data-transition='none'>
+Oooops...
+=========
+
+```cpp
+enum rgba_color_channel {           enum argb_color_channel {
+  red,                                alpha,
+  green,                              red,
+  blue,                               green,
+  alpha;                              blue;
+};                                  };
+// ... in a function
+rgba_color_channel channel = read_channel();
+switch (channel) {
+
+  case red: // which red???
+  case green:
+  case blue:
+  case alpha:
+};
+
+```
+</section>
+
+<section data-markdown data-transition='none'>
+"Totally" fixed:
+================
+
+```cpp
+enum class rgba_color_channel {     enum class argb_color_channel {
+  red,                                alpha,
+  green,                              red,
+  blue,                               green,
+  alpha;                              blue;
+};                                  };
+// ... in a function
+rgba_color_channel channel = read_channel();
+switch (channel) {
+
+  case rgba_color_channel::red: // "much" better, but at least it works.
+  case rgba_color_channel::green:
+  case rgba_color_channel::blue:
+  case rgba_color_channel::alpha:
+};
+
+```
+
+</section>
+
+<section data-markdown data-transition='none'>
+What a wonderful world
+======================
+
+```cpp
+enum class rgba_color_channel {     enum class argb_color_channel {
+  red,                                alpha,
+  green,                              red,
+  blue,                               green,
+  alpha;                              blue;
+};                                  };
+// ... in a function
+rgba_color_channel channel = read_channel();
+switch (channel) {
+  using enum rgba_color_channel;
+  case red: // ahhh, better.
+  case green:
+  case blue:
+  case alpha:
+};
+
+```
+
+</section>
+
+
+			</div>
+		</div>
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			// More info about config & dependencies:
+			// - https://github.com/hakimel/reveal.js#configuration
+			// - https://github.com/hakimel/reveal.js#dependencies
+			Reveal.initialize({
+				dependencies: [
+					{ src: 'plugin/markdown/marked.js' },
+					{ src: 'plugin/markdown/markdown.js' },
+					{ src: 'plugin/notes/notes.js', async: true },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+				],
+        width: 1920,
+        height: 1080,
+        fragments: true,
+			});
+		</script>
+	</body>
+</html>
