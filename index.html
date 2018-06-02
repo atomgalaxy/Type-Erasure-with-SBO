@@ -35,7 +35,7 @@
 			<div class="slides">
 
 <section data-markdown>
-Type Erasure with Small Object Optimization
+Type Erasure with Small Buffer Optimization
 ===========================================
 
 C++ London Meetup
@@ -65,81 +65,111 @@ How To: Achieve Runtime Polymorphism with Regular Types
 -------------------------------------------------------
 
 (Inheritance + virtual functions force reference semantics)
+</section>
 
+<section data-markdown>
+(Refresher - what's Regular)
+----------------------------
 
+The term comes from Elements of Programming by Stepanov and McJones.
+
+It's basically "like an int"
+
+- DefaultConstructible (caveats)
+- Copyable - and the copies don't alias!
+  - CopyConstructible
+  - CopyAssignable
+- Movable
+  - MoveConstructible
+  - MoveAssignable
+- Destructible
+- EqualityComparable (and == is an equivalence relation)
 </section>
 
 <section data-markdown>
 "Solution": Inheritance + virtual functions
 -------------------------------------------
 
-- clases must inherit from abstract class                           <!-- .element: class='bad fragment' -->
-- need to overload "clone" or some other virtual function for copy. <!-- .element: class='fragment' -->
+Pros:
+- natural interface                                                 <!-- .element: class='good fragment' -->
+- people understand it                                              <!-- .element: class='good fragment' -->
+
+Cons:
+- must inherit from specific base class                           <!-- .element: class='bad fragment' -->
+- need to provide "clone" or some other virtual function for copy. <!-- .element: class='fragment' -->
   - No way to model Regular.                                        <!-- .element: class='bad fragment'-->
 - *really* hard to not do on the heap                               <!-- .element: class='bad fragment' -->
-- natural interface                                                 <!-- .element: class='good fragment' -->
 - you pay for virtual method calls even when you _know_ the type    <!-- .element: class='bad fragment' -->
 - no support for free functions                                     <!-- .element: class='bad fragment' -->
-- people understand it                                              <!-- .element: class='good fragment' -->
+
+"Open" polymorphism
 </section>
 
 <section data-markdown>
 Solution: `std::variant<T1, ..., Tn>`
 -------------------------------------
 
-- fixed number of types
+Pros:
 - contained types are freeform
-- contained types are baked in at variant definition
-- no (inherent) heap allocation
-- awkward `std::visit`-based interface.
 - no variant, no runtime cost.
+- really flexible
+- no (inherent) heap allocation
+
+Cons:
+- fixed number of types
+- contained types are baked in at variant definition
+- awkward `std::visit`-based interface.
 - no methods, only free functions (with visit)
 - cannot model same concept as contained types
 - easy to use, but basically impossible to make your own
 - explaining variant takes a bit
 
 "Closed" runtime polymorphism.
-
 </section>
 
-
 <section data-markdown>
-Solution: `std::function<T(Arg1, Arg2, ..., Argn)>`
----------------------------------------------------
+Solution: Classic Type Erasure -- Sean Parent-style
+-----------------------------------------------------------
+(like  `std::function<T(Arg1, Arg2, ..., Argn)>`)
 
-- Sean Parent-style type erasure ("classic")
-- allocates on the heap
-- types must support the concept of _Callable with those parameters_
+Pros:
 - "natural" interface
-  - free functions and methods
+  - free functions and member functions
 - contained types not declared in advance
-- contained types do not need to inherit from anything
-- no function wrapper, no runtime cost.
+- contained types do not need to inherit from anything (but must support required interface)
+- no wrapper, no runtime cost.
 - can model same concept as contained types
   - can act as a "lift" of static polymorphism to runtime
-- the standard co-worker can undestand it with 10 minutes of free time
+- the _standard co-worker_ can undestand it with 10 minutes of free time
+  - this has been tested
+
+Cons:
+- allocates on the heap
 
 "Open" runtime polymorphism
-
 </section>
 
 
 <section data-markdown>
 Solution: Type Erasure + Small Buffer
 -------------------------------------
+"Closed" runtime polymorphism (to types smaller than buffer)
 
-- "Closed" runtime polymorphism (to types smaller than buffer)
+Pros:
 - no heap allocation (for types smaller than buffer)
 - natural interface
   - free functions and methods
 - contained types must support interface, but no need to inherit
-- no container, no runtime cost.
+- no wrapper, no runtime cost.
 - can model same concept as contained types
   - can act as a "lift" of static polymorphism to runtime
 - the standard co-worker can undestand it with 15 minutes of free time
 
-"Semi-Open" runtime polymorphism
+Cons:
+- buffer is fixed size.
+- types a bit constrained.
 
+"Semi-Open" runtime polymorphism
 </section>
 
 <section data-markdown>
@@ -151,7 +181,6 @@ Example: Simple JSON-like Language
   - strings
   - arrays of elements
   - maps of string -&gt; element
-
 </section>
 
 <section data-markdown>
@@ -168,7 +197,6 @@ The Elements
 Notice:
 - We have no control over inheritance of elements.
 - _int_ isn't even a class.
-
 </section>
 
 <section data-markdown>
@@ -193,7 +221,6 @@ void write_into(std::ostream& o, int x) {
 ```
 
 Looks like: `5`
-
 </section>
 
 <section data-markdown>
@@ -206,7 +233,6 @@ void write_into(std::ostream& o, std::string const& x) {
 ```
 
 Looks like: `"foo"`
-
 </section>
 
 <section data-markdown>
@@ -245,7 +271,6 @@ void write_into(std::ostream& o, map_t const& x) {
 ```
 
 Looks like: `{1: [1, 2, "bar",], "foo": 3}`
-
 </section>
 
 <section data-markdown>
@@ -253,7 +278,6 @@ Write Into: `element`?
 ----------------------
 
 This one is more complicated. Let's see what `element` looks like.
-
 </section>
 
 <section data-markdown>
@@ -264,8 +288,8 @@ Element: Interface
 struct element {
   element() noexcept;                   // construct null
   element(element&amp;&amp;) noexcept;          // move-ctr
-  element(element const&);              // copy-ctr
-  element& operator=(element) noexcept; // copy+move assign
+  element(element const&amp;);              // copy-ctr
+  element&amp; operator=(element) noexcept; // copy+move assign
 ```
 </section>
 
@@ -308,6 +332,8 @@ Extras:
 </section>
 
 <section data-markdown>
+Storage
+-------
 ```cpp
 /* struct element { */
 private:
@@ -366,7 +392,7 @@ struct concept {
   friend element;  // ... helps.
   virtual write_into(std::ostream&amp;) const = 0;
   /* ... */
-  ~concept() {};
+  virtual ~concept() {};
 };
 ```
 
@@ -401,7 +427,7 @@ Implementation: Model
 
 This is the main bit:
 ```cpp
-template <typename ValueType>
+template &lt;typename ValueType&gt;
 struct model : concept {
   // vtable, plus one member:
   ValueType value;
@@ -533,7 +559,7 @@ If you want to optimize this, go ahead, make it more complicated.
 
 ```cpp
 struct element {
-~element() { ptr()-&gt;~concept(); }
+  ~element() { ptr()-&gt;~concept(); }
 };
 ```
 </section>
@@ -568,6 +594,8 @@ Thank You
 =========
 
 Questions?
+
+Find the library at https://github.com/atomgalaxy/liberasure.
 </section>
 
 
